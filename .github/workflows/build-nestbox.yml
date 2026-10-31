@@ -1,0 +1,92 @@
+name: Build NestBox laboratory APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-nestbox.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nestbox-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Build Android APK (arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout laboratory repository
+        uses: actions/checkout@v4
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install             "platforms;android-35"             "build-tools;35.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+
+      - name: Clone upstream NestBox sources
+        run: |
+          git clone --depth=1 https://github.com/rifatrajbd/NestBox-An-Android-Emulator-Support-Lineage-OS.git nestbox
+          git -C nestbox rev-parse HEAD
+          grep 'versionName =' nestbox/app/build.gradle.kts
+
+      - name: Give the laboratory APK a separate application ID
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("nestbox/app/build.gradle.kts")
+          before = path.read_text()
+          old = 'applicationId = "app.nbox"'
+          assert before.count(old) == 1, "Upstream applicationId changed; review before building"
+          path.write_text(before.replace(old, 'applicationId = "app.nbox.lab"'))
+          print("Distinct package: app.nbox.lab (production NestBox untouched)")
+          PY
+
+      - name: Download checksum-verified Wayondroid libraries
+        working-directory: nestbox
+        run: python3 scripts/fetch_engines.py
+
+      - name: Download pinned Wayondroid sources
+        working-directory: nestbox
+        run: |
+          mkdir -p build/src
+          curl --fail --location --retry 3 --retry-delay 5             -o build/wayondroid.tar.gz             https://codeload.github.com/yoro1836/wayondroid/tar.gz/a45f80b
+          tar -xzf build/wayondroid.tar.gz -C build/src
+          test -d build/src/wayondroid-a45f80b
+
+      - name: Build native tawcroot and helper with NestBox patches
+        working-directory: nestbox
+        run: |
+          bash scripts/build_tawcroot.sh             build/src/wayondroid-a45f80b             "$ANDROID_HOME/ndk/28.2.13676358"
+          bash scripts/build_helper.sh             build/src/wayondroid-a45f80b             "$ANDROID_HOME"
+
+      - name: Build debug APK
+        working-directory: nestbox
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nestbox-lab-debug-apk
+          path: nestbox/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
