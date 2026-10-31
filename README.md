@@ -1,24 +1,39 @@
 # NestBox Magisk Lab
 
-Isolated Android VM experiment. This repository is **not** the KOLEYA Unity project.
+Изолированный экспериментальный NestBox для Android 13 (Wayondroid/tawcroot) на телефоне без root у хоста.
 
-## Goal
-Build a separate NestBox Android APK based on the upstream [NestBox](https://github.com/rifatrajbd/NestBox-An-Android-Emulator-Support-Lineage-OS) (0.8.0 sources), then evaluate adapting [waydroid-magisk](https://github.com/nitanmarcel/waydroid-magisk) for a rootless Wayondroid Android 13 guest.
+**Цель:** запуск Magisk/Kitsune Mask в гостевом Android через службы `init`, затем включение Zygisk и LSPosed. Наличие `su` само по себе ничего не доказывает.
 
-The existing NestBox Android 13 machine on the phone stays untouched. The experimental APK uses the different Android package ID `app.nbox.lab`. It will have its **own machine/data**.
+## Статус
 
-## Current stage
-- CI: compile the original source (including NestBox's own `su`), with upstream Wayondroid native libraries.
-- No Magisk, Zygisk or LSPosed integration has been proven working.
-- Do not use the phone's boot.img / init_boot.img, and do not run the standard Magisk direct installer on the host.
+- Базовый NestBox 0.8.0 с нативным движком собран: [успешный CI](https://github.com/sergeykikotqa/emulator-/actions/runs/41181004525).
+- Экспериментальный Magisk init-overlay: `scripts/prepare_magisk.py`. Скрипт применяется при сборке APK, **не в телефоне**.
+- Magisk и Zygisk **пока не подтверждены на устройстве**. Они требуют запуска гостевого Android.
+- LSPosed пока **не установлен**: сначала должен заработать Magisk/Zygisk.
 
-## Build
-Open **Actions → Build NestBox laboratory APK** after enabling workflows (if the account has remaining GitHub Actions quota).
+## Что делает Magisk-интеграция
 
-Artifact: `nestbox-lab-debug-apk` → `app-debug.apk`.
+1. Получает закреплённый APK Kitsune Mask Canary и проверяет Git blob SHA-1 до распаковки.
+2. Вкладывает arm64-бинарники в `assets/magisk/system/etc/init/magisk`.
+3. Вкладывает `nestbox-magisk.rc` в `system/product/etc/init`, чтобы гость выполнял настройку при `post-fs-data` и `late_start`.
+4. Готовит `/data/adb/magisk` и пытается установить менеджер после завершения загрузки Android.
+5. В `GuestProps.kt` включает Magisk overlay **только когда на машине включён Root**; отдельный NestBox `su` оставлен для диагностики.
 
-## Sources and licensing
-Upstream NestBox and Wayondroid are GPL-3.0 (see their repositories); the tawcroot runtime is MIT. No APK binaries are committed in this repository. The workflow fetches the original repositories and creates a reproducible build.
+Уровень доступа: только гость в контейнере, не основной Android телефона.
 
-## Limitations
-GitHub Actions for private repositories consumes included CI minutes. Standard GitHub-hosted runners in public repositories do not consume CI minutes. The Actions quota/status of this particular account has not been verified.
+## Скачать пробный APK
+
+1. Открыть вкладку [Actions](https://github.com/sergeykikotqa/emulator-/actions), выбрать последнюю **успешную** сборку.
+2. В **Artifacts** скачать `nestbox-lab-debug-apk`, распаковать ZIP и установить `app-debug.apk`.
+3. Экспериментальный APK имеет package ID `app.nbox.lab` и ставится отдельно от обычного NestBox.
+4. Создать Android 13 + GApps машину, включить **Root**, запустить Android. При первом запуске подготовка Magisk может потребовать второго перезапуска гостя.
+
+Если виртуальная машина загрузится, проверить не только Root Checker: обнаружен ли менеджер Kitsune Mask, установлен ли Magisk, и определяется ли Zygisk.
+
+Если загрузка падает, сохранить **NestBox Boot Logs / guest logcat** и проверить наличие ошибок `magisk64 --setup-sbin`, SELinux, `post-fs-data`.
+
+## Ограничения
+
+Проект `waydroid-magisk` архивирован. Его метод установки рассчитан на Linux Waydroid и здесь адаптирован экспериментально к Android-хосту с rootless Wayondroid. Архивная сборка Kitsune Mask может оказаться несовместимой. Успешная сборка APK ≠ работающий Magisk.
+
+Это не официальный релиз NestBox. Используются открытые исходники [NestBox](https://github.com/rifatrajbd/NestBox-An-Android-Emulator-Support-Lineage-OS), [Wayondroid](https://github.com/yoro1836/wayondroid) и [waydroid-magisk](https://github.com/nitanmarcel/waydroid-magisk). Исходный NestBox/Wayondroid — GPL-3.0; runtime tawcroot — MIT. Третьесторонние бинарники Kitsune Mask для эксперимента скачиваются во время CI и не коммитятся в этот репозиторий.
