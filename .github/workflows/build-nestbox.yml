@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-nestbox.yml'
+      - 'scripts/prepare_magisk.py'
   workflow_dispatch:
 
 permissions:
