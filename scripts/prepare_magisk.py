@@ -29,7 +29,7 @@ URL = f"https://raw.githubusercontent.com/NotMaybe/magiskdelta/{REV}/app-release
 request = urllib.request.Request(URL, headers={"User-Agent": "NestBox-Magisk-Lab/1"})
 with urllib.request.urlopen(request, timeout=120) as response:
     payload = response.read()
-git_hash = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\\0" + payload).hexdigest()
+git_hash = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
 if git_hash != BLOB_SHA1:
     raise SystemExit(f"Kitsune APK Git blob checksum mismatch: {git_hash}")
 print(f"Kitsune APK verified: {len(payload)} bytes, blob {git_hash}")
@@ -55,7 +55,7 @@ with ZipFile(__import__("io").BytesIO(payload)) as archive:
         if name in names:
             (directory / name.rsplit("/", 1)[-1]).write_bytes(archive.read(name))
 (directory / "magisk.apk").write_bytes(payload)
-(directory / "config").write_text("KEEPVERITY=true\\nKEEPFORCEENCRYPT=true\\nRECOVERYMODE=false\\n")
+(directory / "config").write_text("KEEPVERITY=true\nKEEPFORCEENCRYPT=true\nRECOVERYMODE=false\n")
 required = {"magisk64", "magiskpolicy"}
 if not required.issubset(present):
     raise SystemExit(f"Missing required Magisk binaries: {sorted(required - present)}; found {sorted(present)}")
