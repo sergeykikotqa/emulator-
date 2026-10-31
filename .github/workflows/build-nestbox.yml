@@ -38,8 +38,8 @@ jobs:
 
       - name: Install required Android SDK packages
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install             "platforms;android-35"             "build-tools;35.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-35"             "build-tools;35.0.0"             "ndk;28.2.13676358"             "cmake;3.22.1"
 
       - name: Clone upstream NestBox sources
         run: |
