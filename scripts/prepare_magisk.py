@@ -71,7 +71,6 @@ on post-fs-data
 service nestbox_magisk_late /system/bin/sh /system/etc/init/magisk/nestbox-late.sh
     class late_start
     user root
-    disabled
     oneshot
 
 on property:sys.boot_completed=1
@@ -205,6 +204,15 @@ tune_replacement = '''        // NestBox Magisk Lab: let Android finish boot bef
 if engine.count(tune_anchor) != 1:
     raise SystemExit("Upstream ModernEngine changed: expected tuneRunningGuest() anchor")
 engine = engine.replace(tune_anchor, tune_replacement, 1)
+# Keep exactly one boot-level diagnostic file with the rest of NestBox's
+# existing failure logs. No new profiler, logging service, or test harness.
+bootlog_anchor = '''                "kmsg.txt" to File(guest, "rootless/rootfs/dev/kmsg"),
+'''
+bootlog_updated = bootlog_anchor + '''                "magisk-bootstrap.txt" to File(guest, "rootless/data/local/tmp/nestbox-magisk-boot.log"),
+'''
+if engine.count(bootlog_anchor) != 1:
+    raise SystemExit("Upstream ModernEngine changed: boot log collection anchor missing")
+engine = engine.replace(bootlog_anchor, bootlog_updated, 1)
 modern_engine.write_text(engine)
 
 # Retain NestBox's own setuid su as a fallback for a failing Magisk daemon; Root Checker
