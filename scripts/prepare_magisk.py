@@ -63,49 +63,74 @@ print("Staged Kitsune binaries: " + ", ".join(sorted(present)))
 
 init_dir = repo / "app/src/main/assets/magisk/system/product/etc/init"
 init_dir.mkdir(parents=True, exist_ok=True)
-(init_dir / "nestbox-magisk.rc").write_text("""# Experimental Waydroid-style Kitsune Magisk injection into NestBox guest init.
-# Derived from nitanmarcel/waydroid-magisk, patch_bootanim(). Guest-only.
+(init_dir / "nestbox-magisk.rc").write_text("""# NestBox Magisk lab - single guarded bootstrap.
+# An unsupported rootless mount/setup must not hold up Android boot.
 on post-fs-data
-    start logd
-    exec u:r:su:s0 root root -- /system/etc/init/magisk/magisk64 --auto-selinux --setup-sbin /system/etc/init/magisk
-    exec u:r:su:s0 root root -- /system/etc/init/magisk/magiskpolicy --live --magisk "allow * magisk_file lnk_file *"
-    mkdir /sbin/.magisk 0700 root root
-    mkdir /sbin/.magisk/mirror 0700 root root
-    mkdir /sbin/.magisk/block 0700 root root
-    copy /system/etc/init/magisk/config /sbin/.magisk/config
-    rm /dev/.magisk_unblock
-    start nestbox_magisk_postfs
-    wait /dev/.magisk_unblock 15
-    rm /dev/.magisk_unblock
+    exec u:r:su:s0 root root -- /system/bin/sh /system/etc/init/magisk/nestbox-bootstrap.sh
 
-service nestbox_magisk_postfs /sbin/magisk --auto-selinux --post-fs-data
+service nestbox_magisk_late /system/bin/sh /system/etc/init/magisk/nestbox-late.sh
+    class late_start
     user root
-    seclabel u:r:su:s0
     disabled
     oneshot
 
-service nestbox_magisk_late /sbin/magisk --auto-selinux --service
-    class late_start
-    user root
-    seclabel u:r:su:s0
-    oneshot
-
 on property:sys.boot_completed=1
-    start nestbox_magisk_seed
-    mkdir /data/adb/magisk 0755 root root
-    exec u:r:su:s0 root root -- /sbin/magisk --auto-selinux --boot-complete
+    start nestbox_magisk_complete
 
-service nestbox_magisk_seed /system/bin/sh /system/etc/init/magisk/nestbox-seed.sh
+service nestbox_magisk_complete /system/bin/sh /system/etc/init/magisk/nestbox-complete.sh
     user root
-    seclabel u:r:su:s0
     disabled
     oneshot
 
 on property:init.svc.zygote=restarting
-    exec u:r:su:s0 root root -- /sbin/magisk --auto-selinux --zygote-restart
+    start nestbox_magisk_zygote
 
 on property:init.svc.zygote=stopped
-    exec u:r:su:s0 root root -- /sbin/magisk --auto-selinux --zygote-restart
+    start nestbox_magisk_zygote
+
+service nestbox_magisk_zygote /system/bin/sh /system/etc/init/magisk/nestbox-zygote.sh
+    user root
+    disabled
+    oneshot
+""")
+
+(directory / "nestbox-bootstrap.sh").write_text("""#!/system/bin/sh
+DIR=/system/etc/init/magisk
+LOG=/data/local/tmp/nestbox-magisk-boot.log
+echo "NestBox Magisk bootstrap: start" > "$LOG"
+echo "Magisk setup-sbin:" >> "$LOG"
+"$DIR/magisk64" --auto-selinux --setup-sbin "$DIR" >> "$LOG" 2>&1
+rc=$?
+echo "setup-sbin exit=$rc" >> "$LOG"
+if [ "$rc" -ne 0 ] || [ ! -x /sbin/magisk ]; then
+    echo "Magisk bootstrap unavailable in tawcroot; skipping further Magisk init" >> "$LOG"
+    exit 0
+fi
+echo "Magisk policy:" >> "$LOG"
+"$DIR/magiskpolicy" --live --magisk "allow * magisk_file lnk_file *" >> "$LOG" 2>&1
+echo "magiskpolicy exit=$?" >> "$LOG"
+mkdir -p /sbin/.magisk/mirror /sbin/.magisk/block
+cp "$DIR/config" /sbin/.magisk/config
+echo "Magisk post-fs-data:" >> "$LOG"
+/sbin/magisk --auto-selinux --post-fs-data >> "$LOG" 2>&1
+echo "post-fs-data exit=$?" >> "$LOG"
+exit 0
+""")
+
+(directory / "nestbox-late.sh").write_text("""#!/system/bin/sh
+[ -x /sbin/magisk ] || exit 0
+/sbin/magisk --auto-selinux --service >> /data/local/tmp/nestbox-magisk-boot.log 2>&1
+""")
+
+(directory / "nestbox-complete.sh").write_text("""#!/system/bin/sh
+[ -x /sbin/magisk ] || exit 0
+/system/bin/sh /system/etc/init/magisk/nestbox-seed.sh
+/sbin/magisk --auto-selinux --boot-complete >> /data/local/tmp/nestbox-magisk-boot.log 2>&1
+""")
+
+(directory / "nestbox-zygote.sh").write_text("""#!/system/bin/sh
+[ -x /sbin/magisk ] || exit 0
+/sbin/magisk --auto-selinux --zygote-restart >> /data/local/tmp/nestbox-magisk-boot.log 2>&1
 """)
 (directory / "nestbox-seed.sh").write_text("""#!/system/bin/sh
 # Populate Magisk's data directory for subsequent guest boots.
