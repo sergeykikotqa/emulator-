@@ -92,18 +92,12 @@ service nestbox_magisk_late /sbin/magisk --auto-selinux --service
 
 on property:sys.boot_completed=1
     start nestbox_magisk_seed
-    start nestbox_magisk_manager
     mkdir /data/adb/magisk 0755 root root
     exec u:r:su:s0 root root -- /sbin/magisk --auto-selinux --boot-complete
 
 service nestbox_magisk_seed /system/bin/sh /system/etc/init/magisk/nestbox-seed.sh
     user root
     seclabel u:r:su:s0
-    disabled
-    oneshot
-
-service nestbox_magisk_manager /system/bin/pm install -r /system/etc/init/magisk/magisk.apk
-    user root
     disabled
     oneshot
 
@@ -145,6 +139,40 @@ if s.count(before_mode) != 1:
     raise SystemExit("Upstream GuestProps changed: expected asset chmod anchor")
 s = s.replace(before_mode, after_mode, 1)
 guest_props.write_text(s)
+
+# NestBox already installs APKs reliably via 'pm install' after the guest is RUNNING.
+# The init-triggered manager install above can run before package manager is ready,
+# so install the manager from ModernEngine.tuneRunningGuest(), using the same existing
+# guest command pathway as NestBox's Transfer -> Install APK.
+modern_engine = repo / "app/src/main/java/app/nestbox/engine/modern/ModernEngine.kt"
+engine = modern_engine.read_text()
+tune_anchor = '''        vm?.spoof?.let { p ->
+            if (p.region != "Off") sh(Spoof.liveCommands(p).joinToString("; "), 20_000)'''
+tune_replacement = '''        // NestBox Magisk Lab: let Android finish boot before asking PackageManager to install
+        // Kitsune.  The guest's init services only handle Magisk's daemon/boot stages.
+        // A successful root check does not prove the Magisk daemon is functional.
+        if (vm?.root == true) {
+            val apk = "/system/etc/init/magisk/magisk.apk"
+            val output = runCatching {
+                sh("test -s $apk && pm install -r -t $apk", 120_000)
+            }.getOrElse { "Magisk manager install error: ${it.message}" }
+            android.util.Log.i("NestBoxMagiskLab", "manager installation: ${output.take(600)}")
+            // One short diagnostic record only; this is not a per-frame logger.
+            val daemon = runCatching {
+                sh("if test -x /sbin/magisk; then /sbin/magisk -v; else echo Magisk binary absent; fi", 12_000)
+            }.getOrElse { "Magisk daemon check error: ${it.message}" }
+            android.util.Log.i("NestBoxMagiskLab", "daemon check: ${daemon.take(300)}")
+            runCatching {
+                File(guestDir(id), "nestbox-magisk-result.txt")
+                    .writeText("Manager install:\\n$output\\nDaemon check:\\n$daemon\\n")
+            }
+        }
+        vm?.spoof?.let { p ->
+            if (p.region != "Off") sh(Spoof.liveCommands(p).joinToString("; "), 20_000)'''
+if engine.count(tune_anchor) != 1:
+    raise SystemExit("Upstream ModernEngine changed: expected tuneRunningGuest() anchor")
+engine = engine.replace(tune_anchor, tune_replacement, 1)
+modern_engine.write_text(engine)
 
 # Retain NestBox's own setuid su as a fallback for a failing Magisk daemon; Root Checker
 # detecting su does NOT prove Magisk or Zygisk is working.
