@@ -77,6 +77,9 @@ jobs:
           bash scripts/build_tawcroot.sh             build/src/wayondroid-a45f80b             "$ANDROID_HOME/ndk/28.2.13676358"
           bash scripts/build_helper.sh             build/src/wayondroid-a45f80b             "$ANDROID_HOME"
 
+      - name: Stage Magisk for guest init (experimental)
+        run: python3 scripts/prepare_magisk.py nestbox
+
       - name: Build debug APK
         working-directory: nestbox
         run: |
