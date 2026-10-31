@@ -152,10 +152,18 @@ tune_replacement = '''        // NestBox Magisk Lab: let Android finish boot bef
         // Kitsune.  The guest's init services only handle Magisk's daemon/boot stages.
         // A successful root check does not prove the Magisk daemon is functional.
         if (vm?.root == true) {
-            val apk = "/system/etc/init/magisk/magisk.apk"
+            // Stage exactly as NestBox's working Transfer -> Install APK implementation does.
+            // This also installs the manager when the init/rootfs overlay is not active yet.
+            val staged = File(guestDir(id), "rootless/data/local/tmp/nestbox-kitsune.apk")
             val output = runCatching {
-                sh("test -s $apk && pm install -r -t $apk", 120_000)
+                staged.parentFile?.mkdirs()
+                context.assets.open("magisk/system/etc/init/magisk/magisk.apk").use { src ->
+                    staged.outputStream().use { src.copyTo(it) }
+                }
+                staged.setReadable(true, false)
+                sh("pm install -r -t /data/local/tmp/nestbox-kitsune.apk", 120_000)
             }.getOrElse { "Magisk manager install error: ${it.message}" }
+            staged.delete()
             android.util.Log.i("NestBoxMagiskLab", "manager installation: ${output.take(600)}")
             // One short diagnostic record only; this is not a per-frame logger.
             val daemon = runCatching {
